@@ -50,7 +50,6 @@ timer_calibrate (void)
 
   /* Approximate loops_per_tick as the largest power-of-two
      still less than one timer tick. */
-
   loops_per_tick = 1u << 10;
   while (!too_many_loops (loops_per_tick << 1))
     {
@@ -66,6 +65,8 @@ timer_calibrate (void)
 
   printf ("%'"PRIu64" loops/s.\n", (uint64_t) loops_per_tick * TIMER_FREQ);
 }
+
+/* Returns the number of timer ticks since the OS booted. */
 int64_t
 timer_ticks (void)
 {
@@ -83,6 +84,8 @@ timer_elapsed (int64_t then)
   return timer_ticks () - then;
 }
 
+/* Sleeps for approximately TICKS timer ticks.  Interrupts must
+   be turned on. */
 void
 timer_sleep (int64_t ticks)
 {
@@ -93,18 +96,24 @@ timer_sleep (int64_t ticks)
   thread_sleep(start + ticks);
 }
 
+/* Sleeps for approximately MS milliseconds.  Interrupts must be
+   turned on. */
 void
 timer_msleep (int64_t ms)
 {
   real_time_sleep (ms, 1000);
 }
 
+/* Sleeps for approximately US microseconds.  Interrupts must be
+   turned on. */
 void
 timer_usleep (int64_t us)
 {
   real_time_sleep (us, 1000 * 1000);
 }
 
+/* Sleeps for approximately NS nanoseconds.  Interrupts must be
+   turned on. */
 void
 timer_nsleep (int64_t ns)
 {

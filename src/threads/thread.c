@@ -63,11 +63,9 @@ int64_t next_tick_to_awake = INT64_MAX; /* minimal tick of wakeup tick in sleep_
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
-
 bool thread_mlfqs;
 
 /* MLFQ */
-
 #define NICE_DEFAULT 0
 #define RECENT_CPU_DEFAULT 0
 #define LOAD_AVG_DEFAULT 0
@@ -113,6 +111,9 @@ thread_init (void)
   init_thread (initial_thread, "main", PRI_DEFAULT);
   initial_thread->status = THREAD_RUNNING;
   initial_thread->tid = allocate_tid ();
+  // initialize init_thread (main thread) semaphore (exit, load)
+  sema_init (&initial_thread->exit, 0);
+  sema_init (&initial_thread->load, 0);
 }
 
 /* Starts preemptive thread scheduling by enabling interrupts.
@@ -188,6 +189,7 @@ thread_create (const char *name, int priority,
   struct switch_threads_frame *sf;
   tid_t tid;
   enum intr_level old_level;
+  int i;
 
   ASSERT (function != NULL);
 
@@ -221,6 +223,19 @@ thread_create (const char *name, int priority,
   sf->ebp = 0;
 
   intr_set_level (old_level);
+
+  /* Process hierachy & initialize variables,semaphores,list */
+  t->parent = thread_current ();
+  t->memory_load_success = false;
+  t->process_dead = false;
+  sema_init (&t->exit, 0);
+  sema_init (&t->load, 0);
+  list_push_back (&thread_current ()->children, &t->child);
+  t->run_file = NULL;
+
+  t->fd_size = 2;
+  for (i = 0; i < FD_MAX; i++)
+    t->fd_table[i] = NULL;
 
   /* Add to run queue. */
   thread_unblock (t);
@@ -306,6 +321,7 @@ thread_tid (void)
 void
 thread_exit (void)
 {
+  struct thread *t = thread_current ();
   ASSERT (!intr_context ());
 
 #ifdef USERPROG
@@ -316,8 +332,11 @@ thread_exit (void)
      and schedule another process.  That process will destroy us
      when it calls thread_schedule_tail(). */
   intr_disable ();
-  list_remove (&thread_current()->allelem);
-  thread_current ()->status = THREAD_DYING;
+  list_remove (&thread_current ()->allelem);
+  thread_current ()->process_dead = true;
+  if (thread_current ()->parent)
+    sema_up (&thread_current ()->exit);
+  thread_current()->status = THREAD_DYING;  // change thread_current () -> t
   schedule ();
   NOT_REACHED ();
 }
@@ -527,14 +546,15 @@ init_thread (struct thread *t, const char *name, int priority)
   t->priority = priority;
   t->magic = THREAD_MAGIC;
   t->init_priority = priority;
-
   list_init (&t->donations);
-
   t->wait_on_lock = NULL;
   t->nice = NICE_DEFAULT;
   t->recent_cpu = RECENT_CPU_DEFAULT;
 
   list_push_back (&all_list, &t->allelem);
+
+  // Initialize child list
+  list_init (&t->children);
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and
@@ -606,7 +626,7 @@ thread_schedule_tail (struct thread *prev)
   if (prev != NULL && prev->status == THREAD_DYING && prev != initial_thread)
     {
       ASSERT (prev != cur);
-      palloc_free_page (prev);
+      // palloc_free_page (prev);
     }
 }
 
@@ -664,7 +684,6 @@ thread_sleep (int64_t ticks)
     t->wakeup_tick = ticks;
     update_next_tick_to_awake (ticks);
   }
-
   list_push_back (&sleep_list, &(t->elem));
 
   thread_block ();
@@ -735,11 +754,9 @@ donate_priority (void)
 {
   struct thread *cur  = NULL;
   struct lock *target = NULL;
-  int depth = 0;
-  int limit = 8;
+  int depth = 0, limit = 8;
 
   cur = thread_current ();
-
   target = cur->wait_on_lock;
 
   while (target != NULL && depth < limit) {
@@ -783,6 +800,7 @@ refresh_priority(void)
   thread_current ()->priority = max;
 }
 
+// MLFQ
 void
 mlfqs_priority (struct thread *t)
 {
@@ -813,7 +831,6 @@ void
 mlfqs_load_avg (void)
 {
   int num_threads = list_size (&ready_list);
-
   if (thread_current () != idle_thread)
     num_threads++;
 
@@ -839,7 +856,6 @@ mlfqs_recalc (void)
   for (i = list_begin (&all_list); i != list_end (&all_list); i = list_next (i))
   {
     e = list_entry (i, struct thread, allelem);
-
     mlfqs_recent_cpu (e);
     mlfqs_priority (e);
   }

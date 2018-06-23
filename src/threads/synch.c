@@ -124,7 +124,6 @@ sema_up (struct semaphore *sema)
 
   intr_set_level (old_level);
 
-  // priority preemption
   test_max_priority ();
 }
 
@@ -252,7 +251,6 @@ lock_release (struct lock *lock)
   ASSERT (lock_held_by_current_thread (lock));
 
   lock->holder = NULL;
-  /* mlfqs 스케줄러 활성화시 priority donation 관련 코드 비활성화 */
   if (!thread_mlfqs)
   {
     remove_with_lock (lock);
@@ -381,3 +379,4 @@ cmp_sem_priority (const struct list_elem *a,
     return true;
   return false;
 }
+
